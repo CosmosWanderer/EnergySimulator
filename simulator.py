@@ -1,4 +1,5 @@
 import json
+import math
 from itertools import combinations
 
 class Generator:
@@ -29,9 +30,8 @@ class DataPerHour:
         self.max_output = 0.0
         self.full_demand = 0.0
         self.minimal_demand = 0.0
+        self.consumers_not_served = []
         
-        
-
 # Парсер для загрузки тестов
 class Simulator:
     def __init__(self):
@@ -94,12 +94,13 @@ class Simulator:
             return hour_data
                 
         # Отбор генераторов
-        hour_data = self.select_generators(h, hour_demand)
+        hour_data = self.test_methods_of_selecting(h, hour_demand)
         hour_data.minimal_demand = consumers_sorted[0].demand[h]
         hour_data.max_output = max_output
         hour_data.full_demand = sum(c.demand[h] for c in consumers_sorted)
         hour_data.consumers_served = consumers_served
-        
+        hour_data.consumers_not_served = [c for c in consumers_sorted if c not in consumers_served]
+    
         # Возврат данных
         return hour_data
 
@@ -108,6 +109,7 @@ class Simulator:
         best_cost = float('inf')  
         best_subset = []          
         
+        # Перебор всех возможных подмножеств - выбираем с наименьшей ценой, которого достаточно
         for r in range(1, len(self.generators) + 1):
             for subset in combinations(self.generators, r):
                 total_output = sum(g.output[h] for g in subset)
@@ -122,9 +124,48 @@ class Simulator:
         hour_data.anybody_served = len(best_subset) > 0
         return hour_data  
 
+    # Метод, работающий эффективнее чем за факториал по выбору оптимального набора генераторов
     def select_generators_dp(self, h: int, energy_needed: float) -> DataPerHour:
         hour_data = DataPerHour()
-        hour_data.anybody_served = True
+        
+        SCALE = 10
+        
+        # Масштабирование
+        outputs = [round(g.output[h] * SCALE) for g in self.generators]
+        costs = [g.output[h] * g.cost for g in self.generators]
+        target = math.ceil(energy_needed * SCALE)
+        
+        # Максимально возможная выдача
+        max_total = sum(outputs)
+        
+        # Инициализация таблицы
+        INF = float('inf')
+        dp = [INF] * (max_total + 1)
+        dp[0] = 0.0
+        
+        # Для восстановления какие генераторы выбрали
+        chosen = [[] for _ in range(max_total + 1)]
+        
+        # Заполнение таблицы
+        for i, gen in enumerate(self.generators):
+            # Идём с конца чтобы не использовать генератор дважды
+            for j in range(max_total, outputs[i] - 1, -1):
+                new_cost = dp[j - outputs[i]] + costs[i]
+                if new_cost < dp[j]:
+                    dp[j] = new_cost
+                    chosen[j] = chosen[j - outputs[i]] + [gen]
+        
+        # Ищем минимальную стоимость среди всех j >= target
+        best_cost = INF
+        best_gens = []
+        for j in range(target, max_total + 1):
+            if dp[j] < best_cost:
+                best_cost = dp[j]
+                best_gens = chosen[j]
+                
+        hour_data.optimal_cost = best_cost
+        hour_data.used_gens = best_gens
+        hour_data.anybody_served = len(best_gens) > 0
         return hour_data  
 
     def select_generators(self, h: int, energy_needed: float) -> DataPerHour:
@@ -132,24 +173,38 @@ class Simulator:
             return self.select_generators_brute(h, energy_needed)
         else:
             return self.select_generators_dp(h, energy_needed)
+    
+    # Для проверки работы методов
+    def test_methods_of_selecting(self, h: int, energy_needed: float) -> DataPerHour:
+        brute = self.select_generators_brute(h, energy_needed)
+        dp = self.select_generators_dp(h, energy_needed)
+        if abs(brute.optimal_cost - dp.optimal_cost) > 0.01:
+            print(f"Error hour {h}: brute={brute.optimal_cost}, dp={dp.optimal_cost}")
+        return brute 
         
     def show_results(self, data : list[DataPerHour]) -> None:
         for h, hour_data in enumerate(data):
-            print(f"Hour {h} -------------------------")
+            print(f"Hour {h} ---------------------------------")
             if (hour_data.anybody_served):
                 print(f"Full demand: {hour_data.full_demand}, max possible output: {hour_data.max_output}")
                 print(f"Consumers served: {hour_data.consumers_served}")
                 print(f"Generators used: {hour_data.used_gens}")
                 print(f"Optimal cost: {hour_data.optimal_cost}")
+                print(f"Consumers left: {hour_data.consumers_not_served}")
             elif (hour_data.full_demand > 0):
                 print(f"Full demand: {hour_data.full_demand}, max possible output: {hour_data.max_output}")
                 print(f"Minimal demand ({hour_data.minimal_demand}) > max possible output ({hour_data.max_output}) ")
+                print(f"Consumers left: {hour_data.consumers_not_served}")
             else:
                 print(f"Full demand: {hour_data.full_demand}, max possible output: {hour_data.max_output}")
                 print(f"No demand")
-            print("------------------------------------")
+            print("-----------------------------------------")
             
 if __name__ == "__main__":
     sim = Simulator()
-    all_data = sim.simulate("test.json")
+    print("=== Deficit ===")
+    all_data = sim.simulate("test_deficit.json")
+    sim.show_results(all_data)
+    print("=== Surplus ===")
+    all_data = sim.simulate("test_surplus.json")
     sim.show_results(all_data)
