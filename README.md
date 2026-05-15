@@ -2,25 +2,32 @@
 
 ## Запуск
 ### Запуск в консольном режиме
-Тест с избытком генерации (brute force)
+Тест с избытком генерации (полный перебор)
 ```
-python simulator.py tests/test_surplus.json
+python simulator.py tests/test_surplus.json # Windows
+python3 simulator.py tests/test_surplus.json # Linux
 ```
-Тест с дефицитом генерации (brute force)
+Тест с дефицитом генерации (полный перебор)
 ```
-python simulator.py tests/test_deficit.json
+python simulator.py tests/test_deficit.json # Windows
+python3 simulator.py tests/test_deficit.json # Linux
 ```
 С DP алгоритмом
 ```
+# Windows
 python simulator.py tests/test_surplus.json --method dp
 python simulator.py tests/test_deficit.json --method dp
+
+# Linux
+python3 simulator.py tests/test_surplus.json --method dp
+python3 simulator.py tests/test_deficit.json --method dp
 ```
 ### Запуск с интерфейсом и генератором тестов
 Создать и активировать окружение
 ```
 python -m venv venv
-venv\Scripts\activate      # Windows
-source venv/bin/activate   # Mac/Linux
+venv\Scripts\activate # Windows
+source venv/bin/activate # Linux
 ```
 Установить зависимости
 ```
@@ -33,7 +40,7 @@ streamlit run app.py
 
 ## Зависимости
 ```
-python3.14.3
+python 3.14.3
 ```
 Для версии с интерфейсом/генератором тестов все зависимости находятся в `requirements.txt`
 
@@ -65,3 +72,7 @@ python3.14.3
 - Частичная нагрузка генераторов с решением через линейное программирование
 
 ## Использование ИИ
+Использовал Cloude Sonnet 4.6:
+- Для генерации тестов при проверке работы симулятора
+- Для поиска способа решения задачи по отбору генераторов при большом кол-ве генераторов (Т.к. при полном переборе сложность O(2^n))
+- При разработке интерфейса с помощью streamlit
