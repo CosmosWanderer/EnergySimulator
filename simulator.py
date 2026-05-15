@@ -1,5 +1,6 @@
 import json
 import math
+import argparse
 from itertools import combinations
 
 class Generator:
@@ -11,14 +12,20 @@ class Generator:
         self.cost = cost
         if gen_type == "constant":
             self.output = [output] * 24
-        if gen_type == "variable":
+        elif gen_type == "variable":
+            if len(output) != 24:
+                raise ValueError(f"Generator {name}: wrong amount of values for 'output': {len(output)}")
             self.output = output
+        else:
+            raise ValueError(f"Unknown generator type: {gen_type}")
 
 class Consumer:
     def __repr__(self):
         return self.name
     def __init__(self, name : str, demand : list):
         self.name = name
+        if len(demand) != 24:
+            raise ValueError(f"Consumer {name}: wrong amount of values for 'demand': {len(demand)}")
         self.demand = demand
 
 class DataPerHour:
@@ -32,14 +39,14 @@ class DataPerHour:
         self.minimal_demand = 0.0
         self.consumers_not_served = []
         
-# Парсер для загрузки тестов
 class Simulator:
     def __init__(self):
         self.consumers = []
         self.generators = []
         self.testname = ""
         
-    def simulate(self, testname : str) -> list:
+    def simulate(self, testname : str, method="brute") -> list:
+        self.method = method
         self.testname = testname
         self.parse_info()
         all_data = []
@@ -51,7 +58,7 @@ class Simulator:
         self.consumers.clear()
         self.generators.clear()
         
-        with open(f"tests/{self.testname}", "r", encoding="utf-8") as f:
+        with open(self.testname, "r", encoding="utf-8") as f:
             data = json.load(f) 
             
         for gen in data["generators"]:
@@ -69,12 +76,10 @@ class Simulator:
     def simulate_hour(self, h : int):
         hour_data = DataPerHour()
         
-        # Максимальное кол-во энергии
         max_output = 0.0
         for gen in self.generators:
             max_output += gen.output[h]
         
-        # Отбор потребителей
         consumers_sorted = sorted(self.consumers, key=lambda c: c.demand[h])
         consumers_sorted = [c for c in consumers_sorted if c.demand[h] != 0]
         
@@ -93,15 +98,13 @@ class Simulator:
         if not consumers_served:
             return hour_data
                 
-        # Отбор генераторов
-        hour_data = self.test_methods_of_selecting(h, hour_demand)
+        hour_data = self.select_generators(h, hour_demand)
         hour_data.minimal_demand = consumers_sorted[0].demand[h]
         hour_data.max_output = max_output
         hour_data.full_demand = sum(c.demand[h] for c in consumers_sorted)
         hour_data.consumers_served = consumers_served
         hour_data.consumers_not_served = [c for c in consumers_sorted if c not in consumers_served]
     
-        # Возврат данных
         return hour_data
 
     def select_generators_brute(self, h: int, energy_needed: float) -> DataPerHour:
@@ -109,7 +112,6 @@ class Simulator:
         best_cost = float('inf')  
         best_subset = []          
         
-        # Перебор всех возможных подмножеств - выбираем с наименьшей ценой, которого достаточно
         for r in range(1, len(self.generators) + 1):
             for subset in combinations(self.generators, r):
                 total_output = sum(g.output[h] for g in subset)
@@ -124,38 +126,30 @@ class Simulator:
         hour_data.anybody_served = len(best_subset) > 0
         return hour_data  
 
-    # Метод, работающий эффективнее чем за факториал по выбору оптимального набора генераторов
     def select_generators_dp(self, h: int, energy_needed: float) -> DataPerHour:
         hour_data = DataPerHour()
         
         SCALE = 10
         
-        # Масштабирование
         outputs = [round(g.output[h] * SCALE) for g in self.generators]
         costs = [g.output[h] * g.cost for g in self.generators]
         target = math.ceil(energy_needed * SCALE)
         
-        # Максимально возможная выдача
         max_total = sum(outputs)
         
-        # Инициализация таблицы
         INF = float('inf')
         dp = [INF] * (max_total + 1)
         dp[0] = 0.0
         
-        # Для восстановления какие генераторы выбрали
         chosen = [[] for _ in range(max_total + 1)]
         
-        # Заполнение таблицы
         for i, gen in enumerate(self.generators):
-            # Идём с конца чтобы не использовать генератор дважды
             for j in range(max_total, outputs[i] - 1, -1):
                 new_cost = dp[j - outputs[i]] + costs[i]
                 if new_cost < dp[j]:
                     dp[j] = new_cost
                     chosen[j] = chosen[j - outputs[i]] + [gen]
         
-        # Ищем минимальную стоимость среди всех j >= target
         best_cost = INF
         best_gens = []
         for j in range(target, max_total + 1):
@@ -169,18 +163,10 @@ class Simulator:
         return hour_data  
 
     def select_generators(self, h: int, energy_needed: float) -> DataPerHour:
-        if len(self.generators) <= 8:
+        if self.method == "brute":
             return self.select_generators_brute(h, energy_needed)
         else:
             return self.select_generators_dp(h, energy_needed)
-    
-    # Для проверки работы методов
-    def test_methods_of_selecting(self, h: int, energy_needed: float) -> DataPerHour:
-        brute = self.select_generators_brute(h, energy_needed)
-        dp = self.select_generators_dp(h, energy_needed)
-        if abs(brute.optimal_cost - dp.optimal_cost) > 0.01:
-            print(f"Error hour {h}: brute={brute.optimal_cost}, dp={dp.optimal_cost}")
-        return brute 
         
     def show_results(self, data : list[DataPerHour]) -> None:
         for h, hour_data in enumerate(data):
@@ -201,10 +187,11 @@ class Simulator:
             print("-----------------------------------------")
             
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Energy Grid Simulator")
+    parser.add_argument("testfile", help="Path to test JSON file")
+    parser.add_argument("--method", choices=["brute", "dp"], default="brute", help="Algorithm for generator selection")
+    args = parser.parse_args()
+
     sim = Simulator()
-    print("=== Deficit ===")
-    all_data = sim.simulate("test_deficit.json")
-    sim.show_results(all_data)
-    print("=== Surplus ===")
-    all_data = sim.simulate("test_surplus.json")
+    all_data = sim.simulate(args.testfile, args.method)
     sim.show_results(all_data)
